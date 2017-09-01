@@ -13,10 +13,13 @@ import Data.Map ((!), Map)
 import qualified Data.Map as Map
 import Data.StateVar (($=))
 
+import Foreign.C.Types (CDouble(..))
+
 import Data.Spriter.Skeleton
     ( rbObj
     , rbX
     , rbY
+    , rbAngle
     )
 import qualified Data.Spriter.Skeleton as Sk
 
@@ -29,6 +32,8 @@ import Data.Spriter.Types
     , fileName
     , fileWidth
     , fileHeight
+    , filePivotX
+    , filePivotY
     , folderFile
     , folderId
     , schemaEntity
@@ -52,6 +57,8 @@ data Sprite = Sprite
     { _spriteTexture :: SDL.Texture
     , _spriteWidth :: Int
     , _spriteHeight :: Int
+    , _spritePivotX :: Int
+    , _spritePivotY :: Int
     }
 
 makeLenses ''Sprite
@@ -133,6 +140,8 @@ loadImages renderer fs = Map.fromList <$> spriteList
                       { _spriteTexture = tex
                       , _spriteWidth = file ^. fileWidth
                       , _spriteHeight = file ^. fileHeight
+                      , _spritePivotX = file ^. filePivotX
+                      , _spritePivotY = file ^. filePivotY
                       }
               return (file^.fileId, sprite)
 
@@ -149,8 +158,8 @@ apploop :: Env -> AnimState -> IO ()
 apploop env state = do
     events <- SDL.pollEvents
     let qPressed = any eventIsQPress events
-        frameTime' = (state^.frameTime + timeStep) `mod'` (env^.idleAnimation.animLength)
-        animationResult = Sk.animate (env^.idleAnimation) frameTime'
+        frameTime' = (state^.frameTime + timeStep * 1000) `mod'` (env^.runAnimation.animLength)
+        animationResult = Sk.animate (env^.runAnimation) frameTime'
         renderer = env ^. sdlRenderer
 
     SDL.rendererDrawColor renderer $= V4 0 0 0 255
@@ -165,8 +174,12 @@ apploop env state = do
 
     SDL.present renderer
 
+    --print frameTime'
+
     threadDelay $ floor $ timeStep * 1000000
     unless qPressed $ apploop env state
+        { _frameTime = frameTime'
+        }
 
 renderAnimation :: SDL.Renderer -> SpriterFolders -> [Sk.ResultBone] -> IO ()
 renderAnimation renderer folders bs = forM_ bs $ \bone -> do
@@ -176,10 +189,16 @@ renderAnimation renderer folders bs = forM_ bs $ \bone -> do
 
         Just boneObj ->
             let sprite = folders ! (boneObj^.boneObjFolder) ! (boneObj^.boneObjFile)
-                x = floor $ bone ^. rbX
-                y = floor $ bone ^. rbY
+                px = fromIntegral $ sprite ^. spritePivotX
+                py = fromIntegral $ negate $ sprite ^. spritePivotY
+                x = floor $ bone ^. rbX + 400
+                y = floor $ (- bone ^. rbY) + 400
+                angle = CDouble $ bone ^. rbAngle * (-180/pi)
                 w = fromIntegral $ sprite ^. spriteWidth
                 h = fromIntegral $ sprite ^. spriteHeight
                 texture = sprite ^. spriteTexture
                 renderRect = SDL.Rectangle (SDL.P $ V2 x y) (V2 w h)
-            in SDL.copy renderer texture Nothing (Just $ renderRect)
+                pivot = Just $ SDL.P $ V2 px py
+            in
+                SDL.copyEx
+                    renderer texture Nothing (Just $ renderRect) angle pivot (V2 False False)
