@@ -39,7 +39,7 @@ packages:
 - '.'
 - location:
     git: https://github.com/isovector/bones
-    commit: a76d37abd618df6974155155e1d1f1ac80c05503
+    commit: f436c93a56c7b7959f413f1998a4668241371b9a
   extra-dep: true
 #- '../bones'
 

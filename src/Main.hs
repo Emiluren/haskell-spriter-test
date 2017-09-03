@@ -4,7 +4,7 @@ module Main where
 import Control.Concurrent (threadDelay)
 import Control.Lens ((^.))
 import Control.Lens.TH (makeLenses)
-import Control.Monad (unless, forM, forM_, when)
+import Control.Monad (unless, forM, forM_)
 
 import qualified Data.Aeson as A
 import qualified Data.ByteString.Lazy as B
@@ -85,7 +85,7 @@ makeLenses ''AnimState
 
 main :: IO ()
 main = do
-    characterJson <- B.readFile "res/squares/Square.scon"
+    characterJson <- B.readFile "res/CharacterTest/CharacterTest.scon"
     let characterDecoded = A.eitherDecode characterJson :: Either String Sk.Schema
 
     case characterDecoded of
@@ -99,6 +99,11 @@ main = do
 animateCharacter :: Sk.Schema -> IO ()
 animateCharacter schema = do
     SDL.initializeAll
+    aaSucceded <-
+        SDL.setHintWithPriority SDL.DefaultPriority SDL.HintRenderScaleQuality SDL.ScaleLinear
+
+    unless aaSucceded $ putStrLn "Warning: Could not set anti-aliasing"
+
     window <- SDL.createWindow "Haskell Spriter Test" SDL.defaultWindow
         { SDL.windowInitialSize = V2 winWidth winHeight
         }
@@ -106,9 +111,9 @@ animateCharacter schema = do
     renderer <- SDL.createRenderer window (-1) SDL.defaultRenderer
     folders <- loadFolders renderer (schema^.schemaFolder)
 
-    let chr = (schema^.schemaEntity) ! "entity_000"
+    let chr = (schema^.schemaEntity) ! "Character"
         idleAnim = (chr^.entityAnimation) ! "Idle"
-        runAnim = (chr^.entityAnimation) ! "NewAnimation"
+        runAnim = (chr^.entityAnimation) ! "Run"
 
     apploop
         Env
@@ -133,7 +138,7 @@ loadFolders renderer fs = Map.fromList <$> spriteList
 loadImages :: SDL.Renderer -> [Sk.File] -> IO (Map Int Sprite)
 loadImages renderer fs = Map.fromList <$> spriteList
     where spriteList = forM fs $ \file -> do
-              let filepath = "res/squares/" ++ file^.fileName
+              let filepath = "res/CharacterTest/" ++ file^.fileName
               tex <- SDL.Image.loadTexture renderer $ filepath
               putStrLn $ "Loaded " ++ filepath
 
@@ -160,7 +165,7 @@ apploop :: Env -> AnimState -> IO ()
 apploop env state = do
     events <- SDL.pollEvents
     let qPressed = any eventIsQPress events
-        frameTime' = (state^.frameTime + timeStep * 1000) `mod'` (env^.runAnimation.animLength)
+        frameTime' = (state^.frameTime + timeStep * 100) `mod'` (env^.runAnimation.animLength)
         animationResult = Sk.animate (env^.runAnimation) frameTime'
         renderer = env ^. sdlRenderer
 
@@ -175,6 +180,8 @@ apploop env state = do
             renderAnimation renderer (env^.spriterFolders) resultBones
 
     SDL.present renderer
+
+    --print frameTime'
 
     threadDelay $ floor $ timeStep * 1000000
     unless qPressed $ apploop env state
@@ -200,8 +207,6 @@ renderAnimation renderer folders bs = forM_ bs $ \bone -> do
                 y = floor $ (- bone ^. rbY) + 400 - fromIntegral py
                 texture = sprite ^. spriteTexture
                 renderRect = SDL.Rectangle (SDL.P $ V2 x y) (V2 w h)
-            in do
-                when (sprite ^. spriteName == "blue.png") $
-                    putStrLn $ "blue at" ++ show (x, y)
+            in
                 SDL.copyEx
                     renderer texture Nothing (Just $ renderRect) (CDouble degAngle) pivot (V2 False False)

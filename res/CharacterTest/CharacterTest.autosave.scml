@@ -430,7 +430,7 @@
                     <bone x="4.613154" y="91.210822" angle="69.696732"/>
                 </key>
                 <key id="2" time="200" spin="-1">
-                    <bone x="1.116124" y="88.97398" angle="71.802057"/>
+                    <bone x="2.252488" y="96.928525" angle="71.802057"/>
                 </key>
                 <key id="3" time="398">
                     <bone x="1.595184" y="71.962662" angle="70.507687"/>
@@ -439,7 +439,7 @@
                     <bone x="1.001275" y="95.324802" angle="72.515849"/>
                 </key>
                 <key id="5" time="600" spin="-1">
-                    <bone x="3.131876" y="93.813067" angle="74.484636"/>
+                    <bone x="3.131876" y="105.2714" angle="74.484636"/>
                 </key>
             </timeline>
             <timeline id="16" obj="1" name="bone_003" object_type="bone">
