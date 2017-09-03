@@ -41,6 +41,8 @@ packages:
     git: https://github.com/isovector/bones
     commit: a76d37abd618df6974155155e1d1f1ac80c05503
   extra-dep: true
+#- '../bones'
+
 # Dependency packages to be pulled from upstream that are not in the resolver
 # (e.g., acme-missiles-0.3)
 extra-deps:

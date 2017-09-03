@@ -4,7 +4,7 @@ module Main where
 import Control.Concurrent (threadDelay)
 import Control.Lens ((^.))
 import Control.Lens.TH (makeLenses)
-import Control.Monad (unless, forM, forM_)
+import Control.Monad (unless, forM, forM_, when)
 
 import qualified Data.Aeson as A
 import qualified Data.ByteString.Lazy as B
@@ -57,8 +57,9 @@ data Sprite = Sprite
     { _spriteTexture :: SDL.Texture
     , _spriteWidth :: Int
     , _spriteHeight :: Int
-    , _spritePivotX :: Int
-    , _spritePivotY :: Int
+    , _spritePivotX :: Double
+    , _spritePivotY :: Double
+    , _spriteName :: String
     }
 
 makeLenses ''Sprite
@@ -84,7 +85,7 @@ makeLenses ''AnimState
 
 main :: IO ()
 main = do
-    characterJson <- B.readFile "res/CharacterTest/CharacterTest.scon"
+    characterJson <- B.readFile "res/squares/Square.scon"
     let characterDecoded = A.eitherDecode characterJson :: Either String Sk.Schema
 
     case characterDecoded of
@@ -105,9 +106,9 @@ animateCharacter schema = do
     renderer <- SDL.createRenderer window (-1) SDL.defaultRenderer
     folders <- loadFolders renderer (schema^.schemaFolder)
 
-    let chr = (schema^.schemaEntity) ! "Character"
+    let chr = (schema^.schemaEntity) ! "entity_000"
         idleAnim = (chr^.entityAnimation) ! "Idle"
-        runAnim = (chr^.entityAnimation) ! "Run"
+        runAnim = (chr^.entityAnimation) ! "NewAnimation"
 
     apploop
         Env
@@ -132,7 +133,7 @@ loadFolders renderer fs = Map.fromList <$> spriteList
 loadImages :: SDL.Renderer -> [Sk.File] -> IO (Map Int Sprite)
 loadImages renderer fs = Map.fromList <$> spriteList
     where spriteList = forM fs $ \file -> do
-              let filepath = "res/CharacterTest/" ++ file^.fileName
+              let filepath = "res/squares/" ++ file^.fileName
               tex <- SDL.Image.loadTexture renderer $ filepath
               putStrLn $ "Loaded " ++ filepath
 
@@ -142,6 +143,7 @@ loadImages renderer fs = Map.fromList <$> spriteList
                       , _spriteHeight = file ^. fileHeight
                       , _spritePivotX = file ^. filePivotX
                       , _spritePivotY = file ^. filePivotY
+                      , _spriteName = file ^. fileName
                       }
               return (file^.fileId, sprite)
 
@@ -174,8 +176,6 @@ apploop env state = do
 
     SDL.present renderer
 
-    --print frameTime'
-
     threadDelay $ floor $ timeStep * 1000000
     unless qPressed $ apploop env state
         { _frameTime = frameTime'
@@ -189,16 +189,19 @@ renderAnimation renderer folders bs = forM_ bs $ \bone -> do
 
         Just boneObj ->
             let sprite = folders ! (boneObj^.boneObjFolder) ! (boneObj^.boneObjFile)
-                px = fromIntegral $ sprite ^. spritePivotX
-                py = fromIntegral $ negate $ sprite ^. spritePivotY
-                x = floor $ bone ^. rbX + 400
-                y = floor $ (- bone ^. rbY) + 400
-                angle = CDouble $ bone ^. rbAngle * (-180/pi)
                 w = fromIntegral $ sprite ^. spriteWidth
                 h = fromIntegral $ sprite ^. spriteHeight
+                px = floor $ (sprite ^. spritePivotX) * fromIntegral w
+                py = floor $ (1 - sprite ^. spritePivotY) * fromIntegral h
+                pivot = Just $ SDL.P $ V2 px py
+                angle = bone ^. rbAngle
+                degAngle = angle * (- 180/pi)
+                x = floor $ bone ^. rbX + 400 - fromIntegral px
+                y = floor $ (- bone ^. rbY) + 400 - fromIntegral py
                 texture = sprite ^. spriteTexture
                 renderRect = SDL.Rectangle (SDL.P $ V2 x y) (V2 w h)
-                pivot = Just $ SDL.P $ V2 px py
-            in
+            in do
+                when (sprite ^. spriteName == "blue.png") $
+                    putStrLn $ "blue at" ++ show (x, y)
                 SDL.copyEx
-                    renderer texture Nothing (Just $ renderRect) angle pivot (V2 False False)
+                    renderer texture Nothing (Just $ renderRect) (CDouble degAngle) pivot (V2 False False)
