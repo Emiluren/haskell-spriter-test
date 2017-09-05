@@ -165,7 +165,7 @@ apploop :: Env -> AnimState -> IO ()
 apploop env state = do
     events <- SDL.pollEvents
     let qPressed = any eventIsQPress events
-        frameTime' = (state^.frameTime + timeStep * 100) `mod'` (env^.runAnimation.animLength)
+        frameTime' = (state^.frameTime + timeStep * 1000) `mod'` (env^.runAnimation.animLength)
         animationResult = Sk.animate (env^.runAnimation) frameTime'
         renderer = env ^. sdlRenderer
 
