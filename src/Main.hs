@@ -1,50 +1,38 @@
-{-# LANGUAGE OverloadedStrings, TemplateHaskell #-}
+{-# LANGUAGE OverloadedStrings, TemplateHaskell, QuasiQuotes #-}
 module Main where
+
+import SpriterTypes
 
 import Control.Concurrent (threadDelay)
 import Control.Lens ((^.))
 import Control.Lens.TH (makeLenses)
 import Control.Monad (unless, forM, forM_)
 
-import qualified Data.Aeson as A
-import qualified Data.ByteString.Lazy as B
-import Data.Fixed (mod')
 import Data.Map ((!), Map)
 import qualified Data.Map as Map
+import Data.Monoid ((<>))
 import Data.StateVar (($=))
 
 import Foreign.C.Types (CDouble(..))
-
-import Data.Spriter.Skeleton
-    ( rbObj
-    , rbX
-    , rbY
-    , rbAngle
-    )
-import qualified Data.Spriter.Skeleton as Sk
-
-import Data.Spriter.Types
-    ( animLength
-    , boneObjFile
-    , boneObjFolder
-    , entityAnimation
-    , fileId
-    , fileName
-    , fileWidth
-    , fileHeight
-    , filePivotX
-    , filePivotY
-    , folderFile
-    , folderId
-    , schemaEntity
-    , schemaFolder
-    )
-import qualified Data.Spriter.Types as Sk
+import Foreign.C.String (CString, withCString)
+import Foreign.Marshal.Alloc (free)
+import Foreign.Ptr (Ptr, nullPtr)
 
 import Linear (V2(..), V4(..))
 
 import qualified SDL
 import qualified SDL.Image
+
+import qualified Language.C.Inline.Cpp as C
+
+C.context $ C.cppCtx <> C.funCtx <> spriterCtx
+
+C.include "<spriterengine/spriterengine.h>"
+C.include "<spriterengine/override/filefactory.h>"
+C.include "<spriterengine/global/settings.h>"
+C.include "SpriterHelpers.hpp"
+
+C.using "namespace SpriterEngine"
 
 winWidth, winHeight :: Num a => a
 winWidth = 800
@@ -64,18 +52,7 @@ data Sprite = Sprite
 
 makeLenses ''Sprite
 
-data Env = Env
-    { _sdlRenderer :: SDL.Renderer
-    , _spriterFolders :: SpriterFolders
-    , _spriterSchema :: Sk.Schema
-    , _character :: Sk.Entity
-    , _idleAnimation :: Sk.Animation
-    , _runAnimation :: Sk.Animation
-    }
-
 type SpriterFolders = Map Int (Map Int Sprite)
-
-makeLenses ''Env
 
 data AnimState = AnimState
     { _frameTime :: Double
@@ -83,21 +60,32 @@ data AnimState = AnimState
 
 makeLenses ''AnimState
 
+loadSpriterModel :: CString -> IO (Ptr CSpriterModel)
+loadSpriterModel modelPath =
+    [C.exp| SpriterModel*
+        { new SpriterModel($(char* modelPath), new SpriterFileFactory()) }|]
+
+modelGetNewEntityInstance :: Ptr CSpriterModel -> CString -> IO (Ptr CEntityInstance)
+modelGetNewEntityInstance model entityName =
+    [C.exp| EntityInstance*
+        { $(SpriterModel* model)->getNewEntityInstance($(char* entityName)) }|]
+
+entityInstanceSetCurrentAnimation :: Ptr CEntityInstance -> CString -> IO ()
+entityInstanceSetCurrentAnimation ptr animName =
+    [C.exp| void
+        { $(EntityInstance* ptr)->setCurrentAnimation($(char* animName)) } |]
+
+printWithMsg :: CDouble -> IO ()
+printWithMsg val =
+    putStrLn $ "Val is " ++ show val ++ "."
+
 main :: IO ()
 main = do
-    characterJson <- B.readFile "res/CharacterTest/CharacterTest.scon"
-    let characterDecoded = A.eitherDecode characterJson :: Either String Sk.Schema
+    [C.exp| void { Settings::setErrorFunction(Settings::simpleError);} |]
+    spriterModel <- withCString "res/CharacterTest/CharacterTest.scon" loadSpriterModel
+    entityInstance <- withCString "Character" $ modelGetNewEntityInstance spriterModel
+    withCString "Run" $ entityInstanceSetCurrentAnimation entityInstance
 
-    case characterDecoded of
-        Left msg ->
-            putStrLn $ "JSON parse failed" ++ msg
-
-        Right schema -> do
-            putStrLn "JSON loaded successfully"
-            animateCharacter schema
-
-animateCharacter :: Sk.Schema -> IO ()
-animateCharacter schema = do
     SDL.initializeAll
     aaSucceded <-
         SDL.setHintWithPriority SDL.DefaultPriority SDL.HintRenderScaleQuality SDL.ScaleLinear
@@ -108,49 +96,66 @@ animateCharacter schema = do
         { SDL.windowInitialSize = V2 winWidth winHeight
         }
 
-    renderer <- SDL.createRenderer window (-1) SDL.defaultRenderer
-    folders <- loadFolders renderer (schema^.schemaFolder)
+    [C.block|
+     void {
+         $fun:(void (*printWithMsg)(double))(4.0);
+         $fun:(void (*printWithMsg)(double))(8.0);
+     }
+     |]
 
-    let chr = (schema^.schemaEntity) ! "Character"
-        idleAnim = (chr^.entityAnimation) ! "Idle"
-        runAnim = (chr^.entityAnimation) ! "Run"
+    renderer <- SDL.createRenderer window (-1) SDL.defaultRenderer
+--     folders <- loadFolders renderer (schema^.schemaFolder)
+
+--     let chr = (schema^.schemaEntity) ! "Character"
+--         idleAnim = (chr^.entityAnimation) ! "Idle"
+--         runAnim = (chr^.entityAnimation) ! "Run"
+
+    let
+        apploop :: AnimState -> IO ()
+        apploop state = do
+            events <- SDL.pollEvents
+            let qPressed = any eventIsQPress events
+
+            SDL.rendererDrawColor renderer $= V4 0 0 0 255
+            SDL.clear renderer
+
+            SDL.present renderer
+
+            threadDelay $ floor $ timeStep * 1000000
+            unless qPressed $ apploop state
+                { _frameTime = state ^. frameTime + timeStep
+                }
 
     apploop
-        Env
-        { _sdlRenderer = renderer
-        , _spriterSchema = schema
-        , _spriterFolders = folders
-        , _character = chr
-        , _idleAnimation = idleAnim
-        , _runAnimation = runAnim
-        }
-
         AnimState
         { _frameTime = 0
         }
 
-loadFolders :: SDL.Renderer -> [Sk.Folder] -> IO (Map Int (Map Int Sprite))
-loadFolders renderer fs = Map.fromList <$> spriteList
-    where spriteList = forM fs $ \folder -> do
-              images <- loadImages renderer (folder^.folderFile)
-              return (folder^.folderId, images)
+    free entityInstance
+    free spriterModel
 
-loadImages :: SDL.Renderer -> [Sk.File] -> IO (Map Int Sprite)
-loadImages renderer fs = Map.fromList <$> spriteList
-    where spriteList = forM fs $ \file -> do
-              let filepath = "res/CharacterTest/" ++ file^.fileName
-              tex <- SDL.Image.loadTexture renderer $ filepath
-              putStrLn $ "Loaded " ++ filepath
+-- loadFolders :: SDL.Renderer -> [Sk.Folder] -> IO (Map Int (Map Int Sprite))
+-- loadFolders renderer fs = Map.fromList <$> spriteList
+--     where spriteList = forM fs $ \folder -> do
+--               images <- loadImages renderer (folder^.folderFile)
+--               return (folder^.folderId, images)
 
-              let sprite = Sprite
-                      { _spriteTexture = tex
-                      , _spriteWidth = file ^. fileWidth
-                      , _spriteHeight = file ^. fileHeight
-                      , _spritePivotX = file ^. filePivotX
-                      , _spritePivotY = file ^. filePivotY
-                      , _spriteName = file ^. fileName
-                      }
-              return (file^.fileId, sprite)
+-- loadImages :: SDL.Renderer -> [Sk.File] -> IO (Map Int Sprite)
+-- loadImages renderer fs = Map.fromList <$> spriteList
+--     where spriteList = forM fs $ \file -> do
+--               let filepath = "res/CharacterTest/" ++ file^.fileName
+--               tex <- SDL.Image.loadTexture renderer $ filepath
+--               putStrLn $ "Loaded " ++ filepath
+
+--               let sprite = Sprite
+--                       { _spriteTexture = tex
+--                       , _spriteWidth = file ^. fileWidth
+--                       , _spriteHeight = file ^. fileHeight
+--                       , _spritePivotX = file ^. filePivotX
+--                       , _spritePivotY = file ^. filePivotY
+--                       , _spriteName = file ^. fileName
+--                       }
+--               return (file^.fileId, sprite)
 
 eventIsQPress :: SDL.Event -> Bool
 eventIsQPress event =
@@ -161,52 +166,25 @@ eventIsQPress event =
         _ ->
             False
 
-apploop :: Env -> AnimState -> IO ()
-apploop env state = do
-    events <- SDL.pollEvents
-    let qPressed = any eventIsQPress events
-        frameTime' = (state^.frameTime + timeStep * 1000) `mod'` (env^.runAnimation.animLength)
-        animationResult = Sk.animate (env^.runAnimation) frameTime'
-        renderer = env ^. sdlRenderer
+-- renderAnimation :: SDL.Renderer -> SpriterFolders -> [Sk.ResultBone] -> IO ()
+-- renderAnimation renderer folders bs = forM_ bs $ \bone -> do
+--     case bone ^. rbObj of
+--         Nothing ->
+--             return ()
 
-    SDL.rendererDrawColor renderer $= V4 0 0 0 255
-    SDL.clear renderer
-
-    case animationResult of
-        Nothing ->
-            putStrLn "ERROR: frameTime was longer than animation"
-
-        Just resultBones ->
-            renderAnimation renderer (env^.spriterFolders) resultBones
-
-    SDL.present renderer
-
-    --print frameTime'
-
-    threadDelay $ floor $ timeStep * 1000000
-    unless qPressed $ apploop env state
-        { _frameTime = frameTime'
-        }
-
-renderAnimation :: SDL.Renderer -> SpriterFolders -> [Sk.ResultBone] -> IO ()
-renderAnimation renderer folders bs = forM_ bs $ \bone -> do
-    case bone ^. rbObj of
-        Nothing ->
-            return ()
-
-        Just boneObj ->
-            let sprite = folders ! (boneObj^.boneObjFolder) ! (boneObj^.boneObjFile)
-                w = fromIntegral $ sprite ^. spriteWidth
-                h = fromIntegral $ sprite ^. spriteHeight
-                px = floor $ (sprite ^. spritePivotX) * fromIntegral w
-                py = floor $ (1 - sprite ^. spritePivotY) * fromIntegral h
-                pivot = Just $ SDL.P $ V2 px py
-                angle = bone ^. rbAngle
-                degAngle = angle * (- 180/pi)
-                x = floor $ bone ^. rbX + 400 - fromIntegral px
-                y = floor $ (- bone ^. rbY) + 400 - fromIntegral py
-                texture = sprite ^. spriteTexture
-                renderRect = SDL.Rectangle (SDL.P $ V2 x y) (V2 w h)
-            in
-                SDL.copyEx
-                    renderer texture Nothing (Just $ renderRect) (CDouble degAngle) pivot (V2 False False)
+--         Just boneObj ->
+--             let sprite = folders ! (boneObj^.boneObjFolder) ! (boneObj^.boneObjFile)
+--                 w = fromIntegral $ sprite ^. spriteWidth
+--                 h = fromIntegral $ sprite ^. spriteHeight
+--                 px = floor $ (sprite ^. spritePivotX) * fromIntegral w
+--                 py = floor $ (1 - sprite ^. spritePivotY) * fromIntegral h
+--                 pivot = Just $ SDL.P $ V2 px py
+--                 angle = bone ^. rbAngle
+--                 degAngle = angle * (- 180/pi)
+--                 x = floor $ bone ^. rbX + 400 - fromIntegral px
+--                 y = floor $ (- bone ^. rbY) + 400 - fromIntegral py
+--                 texture = sprite ^. spriteTexture
+--                 renderRect = SDL.Rectangle (SDL.P $ V2 x y) (V2 w h)
+--             in
+--                 SDL.copyEx
+--                     renderer texture Nothing (Just $ renderRect) (CDouble degAngle) pivot (V2 False False)
