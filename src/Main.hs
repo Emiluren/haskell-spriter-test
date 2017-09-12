@@ -16,7 +16,7 @@ import Data.StateVar (($=))
 import Foreign.C.Types (CDouble(..))
 import Foreign.C.String (CString, withCString, peekCString)
 import Foreign.Marshal.Alloc (free)
-import Foreign.Ptr (Ptr(..), nullPtr, castPtr, FunPtr)
+import Foreign.Ptr (Ptr(..), nullPtr, castPtr, FunPtr, freeHaskellFunPtr)
 import Foreign.StablePtr
     ( StablePtr
     , newStablePtr
@@ -24,6 +24,7 @@ import Foreign.StablePtr
     , castStablePtrToPtr
     , castPtrToStablePtr
     )
+import Foreign.Storable
 
 import Linear (V2(..), V4(..))
 
@@ -53,7 +54,7 @@ makeLenses ''Sprite
 type SpriterFolders = Map Int (Map Int Sprite)
 
 type ImageLoader = CString -> CDouble -> CDouble -> IO (Ptr Sprite)
-type Renderer = IO ()
+type Renderer = Ptr Sprite -> Ptr CSpriteState -> IO ()
 
 loadSpriterModel :: (FunPtr ImageLoader) -> (FunPtr Renderer) -> CString -> IO (Ptr CSpriterModel)
 loadSpriterModel imgloader renderer modelPath =
@@ -63,7 +64,7 @@ loadSpriterModel imgloader renderer modelPath =
                 $(char* modelPath),
                 new SpriterFileFactory(
                         $(HaskellSprite* (*imgloader)(const char*, double, double)),
-                        $(void (*renderer)())
+                        $(void (*renderer)(HaskellSprite*, SpriteState*))
                 )
           )
         }|]
@@ -97,8 +98,9 @@ loadImage renderer filename pivotX pivotY = do
             }
 
     stablePtr <- newStablePtr sprite
-    --return $ castPtr $ castStablePtrToPtr stablePtr
-    return nullPtr
+
+    -- TODO: Memory leak, make sure stablePtr is freed on exit
+    return $ castPtr $ castStablePtrToPtr stablePtr
 
 main :: IO ()
 main = do
@@ -127,7 +129,6 @@ main = do
     entityInstance <- withCString "Character" $ modelGetNewEntityInstance spriterModel
     withCString "Run" $ entityInstanceSetCurrentAnimation entityInstance
 
-
     let
         cTimeStep = CDouble timeStep
 
@@ -141,13 +142,9 @@ main = do
 
             [C.block| void
              {
-                 //cout << "yop" << endl;
                  auto ent = $(EntityInstance* entityInstance);
-                 //cout << "yip" << endl;
                  ent->setTimeElapsed($(double cTimeStep));
-                 //cout << "yup" << endl;
                  ent->render();
-                 //cout << "yap" << endl;
              }
             |]
 
@@ -160,6 +157,8 @@ main = do
 
     free entityInstance
     free spriterModel
+    freeHaskellFunPtr imgloader
+    freeHaskellFunPtr renderf
 
 eventIsQPress :: SDL.Event -> Bool
 eventIsQPress event =
@@ -193,10 +192,10 @@ eventIsQPress event =
 --                 SDL.copyEx
 --                     renderer texture Nothing (Just $ renderRect) (CDouble degAngle) pivot (V2 False False)
 
-renderSprite :: SDL.Renderer -> -- Ptr Sprite -> 
-    IO ()
-renderSprite renderer -- spritePtr
-    = do
-    -- sprite <- deRefStablePtr $ castPtrToStablePtr $ castPtr $ spritePtr
-    -- putStrLn $ "rendering" ++ sprite ^. spriteName
-    putStrLn "eehhhhhmmmaaahhgerd"
+renderSprite :: SDL.Renderer -> Renderer
+renderSprite renderer spritePtr spriteStatePtr = do
+    sprite <- deRefStablePtr $ castPtrToStablePtr $ castPtr $ spritePtr
+    spriteState <- peek spriteStatePtr
+    --putStrLn $ "rendering: " ++ sprite ^. spriteName
+    --print spriteState
+    return ()

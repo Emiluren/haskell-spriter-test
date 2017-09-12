@@ -10,7 +10,7 @@
 using namespace SpriterEngine;
 
 extern "C" {
-SpriterModel * inline_c_Main_0_f3ce6667b7e7fb2a80dfc9627ad710e87d6e1438(char * modelPath_inline_c_0, HaskellSprite * (* imgloader_inline_c_1)(const char *, double , double ), void (* renderer_inline_c_2)()) {
+SpriterModel * inline_c_Main_0_4ceca4cc758f5f7fd8ee1939d2a3c25ce9a2a266(char * modelPath_inline_c_0, HaskellSprite * (* imgloader_inline_c_1)(const char *, double , double ), void (* renderer_inline_c_2)(HaskellSprite *, SpriteState *)) {
 return (
             new SpriterModel(
                 modelPath_inline_c_0,
@@ -46,15 +46,11 @@ void inline_c_Main_3_0904dee9f665a3497d4479a5e816f6a31739d10c() {
 }
 
 extern "C" {
-void inline_c_Main_4_52748ac8bbe7c929c18d02e526b7ebd8be6b3f31(EntityInstance * entityInstance_inline_c_0, double cTimeStep_inline_c_1) {
+void inline_c_Main_4_89e6aee5670c9e6338390bb074524209cb06fa28(EntityInstance * entityInstance_inline_c_0, double cTimeStep_inline_c_1) {
 
-                 //cout << "yop" << endl;
                  auto ent = entityInstance_inline_c_0;
-                 //cout << "yip" << endl;
                  ent->setTimeElapsed(cTimeStep_inline_c_1);
-                 //cout << "yup" << endl;
                  ent->render();
-                 //cout << "yap" << endl;
              
 }
 

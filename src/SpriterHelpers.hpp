@@ -12,11 +12,25 @@ using namespace SpriterEngine;
 
 class HaskellSprite {};
 
+struct SpriteState {
+    double alpha;
+    point position;
+    double angle;
+    point scale;
+    point pivot;
+};
+
+void print_sprite_state(SpriteState* state) {
+    printf("SpriteState { alpha = %f, position = (%f, %f), angle = %f, scale = (%f, %f), pivot = (%f, %f) }\n",
+           state->alpha, state->position.x, state->position.y, state->angle,
+           state->scale.x, state->scale.y, state->pivot.x, state->pivot.y);
+}
+
 class SpriterImageFile : public ImageFile
 {
 public:
     SpriterImageFile(HaskellSprite* sprite,
-                     function<void()> render,
+                     function<void(HaskellSprite*, SpriteState*)> render,
                      const string& filename,
                      point pivot) :
         sprite(sprite),
@@ -25,19 +39,27 @@ public:
     }
 
     void renderSprite(UniversalObjectInterface *spriteInfo) override {
-        render();
+        SpriteState state;
+        state.alpha = spriteInfo->getAlpha();
+        state.position = spriteInfo->getPosition();
+        state.angle = spriteInfo->getAngle();
+        state.scale = spriteInfo->getScale();
+        state.pivot = spriteInfo->getPivot();
+
+        //print_sprite_state(&state);
+        render(sprite, &state);
     }
 
 private:
     HaskellSprite* sprite;
-    function<void()> render = nullptr;
+    function<void(HaskellSprite*, SpriteState*)> render = nullptr;
 };
 
 class SpriterFileFactory : public FileFactory
 {
 public:
     SpriterFileFactory(function<HaskellSprite*(const char*, double, double)> imageLoad,
-                       function<void()> render) :
+                       function<void(HaskellSprite*, SpriteState*)> render) :
         imageLoad(imageLoad), render(render) {
     }
 
@@ -54,7 +76,7 @@ public:
 
 private:
     function<HaskellSprite*(const char*, double, double)> imageLoad;
-    function<void()> render;
+    function<void(HaskellSprite*, SpriteState*)> render;
 };
 
 #endif
