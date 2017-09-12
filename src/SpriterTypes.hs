@@ -31,6 +31,13 @@ data CSpriteState = CSpriteState
     , _spriteStatePivot :: SpriterPoint
     } deriving Show
 
+data Sprite = Sprite
+    { _spriteTexture :: SDL.Texture
+    , _spritePivotX :: CDouble
+    , _spritePivotY :: CDouble
+    , _spriteName :: String
+    }
+
 -- TODO: alignment may be completely wrong
 instance Storable SpriterPoint where
     sizeOf _ = 2 * sizeOf (undefined :: CDouble)
@@ -62,13 +69,6 @@ instance Storable CSpriteState where
 spriterCtx :: C.Context
 spriterCtx = mempty
     { ctxTypesTable = spriterTypeTable
-    }
-
-data Sprite = Sprite
-    { _spriteTexture :: SDL.Texture
-    , _spritePivotX :: CDouble
-    , _spritePivotY :: CDouble
-    , _spriteName :: String
     }
 
 spriterTypeTable :: Map TypeSpecifier TH.TypeQ

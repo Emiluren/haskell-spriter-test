@@ -50,6 +50,8 @@ timeStep :: Double
 timeStep = 1/60
 
 makeLenses ''Sprite
+makeLenses ''SpriterPoint
+makeLenses ''CSpriteState
 
 type SpriterFolders = Map Int (Map Int Sprite)
 
@@ -130,7 +132,7 @@ main = do
     withCString "Run" $ entityInstanceSetCurrentAnimation entityInstance
 
     let
-        cTimeStep = CDouble timeStep
+        cTimeStep = CDouble $ timeStep * 1000
 
         apploop :: IO ()
         apploop = do
@@ -169,33 +171,24 @@ eventIsQPress event =
         _ ->
             False
 
--- renderAnimation :: SDL.Renderer -> SpriterFolders -> [Sk.ResultBone] -> IO ()
--- renderAnimation renderer folders bs = forM_ bs $ \bone -> do
---     case bone ^. rbObj of
---         Nothing ->
---             return ()
-
---         Just boneObj ->
---             let sprite = folders ! (boneObj^.boneObjFolder) ! (boneObj^.boneObjFile)
---                 w = fromIntegral $ sprite ^. spriteWidth
---                 h = fromIntegral $ sprite ^. spriteHeight
---                 px = floor $ (sprite ^. spritePivotX) * fromIntegral w
---                 py = floor $ (1 - sprite ^. spritePivotY) * fromIntegral h
---                 pivot = Just $ SDL.P $ V2 px py
---                 angle = bone ^. rbAngle
---                 degAngle = angle * (- 180/pi)
---                 x = floor $ bone ^. rbX + 400 - fromIntegral px
---                 y = floor $ (- bone ^. rbY) + 400 - fromIntegral py
---                 texture = sprite ^. spriteTexture
---                 renderRect = SDL.Rectangle (SDL.P $ V2 x y) (V2 w h)
---             in
---                 SDL.copyEx
---                     renderer texture Nothing (Just $ renderRect) (CDouble degAngle) pivot (V2 False False)
-
 renderSprite :: SDL.Renderer -> Renderer
 renderSprite renderer spritePtr spriteStatePtr = do
     sprite <- deRefStablePtr $ castPtrToStablePtr $ castPtr $ spritePtr
     spriteState <- peek spriteStatePtr
+
+    textureInfo <- SDL.queryTexture $ sprite ^. spriteTexture
     --putStrLn $ "rendering: " ++ sprite ^. spriteName
     --print spriteState
-    return ()
+    let w = fromIntegral $ SDL.textureWidth textureInfo
+        h = fromIntegral $ SDL.textureHeight textureInfo
+        px = floor $ (sprite ^. spritePivotX) * fromIntegral w
+        py = floor $ (1 - sprite ^. spritePivotY) * fromIntegral h
+        pivot = Just $ SDL.P $ V2 px py
+        angle = spriteState ^. spriteStateAngle
+        degAngle = angle * (180/pi)
+        x = floor $ spriteState^.spriteStatePosition.pointX + 400 - fromIntegral px
+        y = floor $ spriteState^.spriteStatePosition.pointY + 400 - fromIntegral py
+        texture = sprite ^. spriteTexture
+        renderRect = SDL.Rectangle (SDL.P $ V2 x y) (V2 w h)
+    SDL.copyEx
+        renderer texture Nothing (Just $ renderRect) (CDouble degAngle) pivot (V2 False False)
