@@ -4,47 +4,57 @@
 #include <spriterengine/override/filefactory.h>
 #include <spriterengine/override/imagefile.h>
 #include "jsonspriterfiledocumentwrapper.h"
+#include <iostream>
+#include <functional>
 
+using namespace std;
 using namespace SpriterEngine;
+
+class HaskellSprite {};
 
 class SpriterImageFile : public ImageFile
 {
 public:
-    SpriterImageFile(const std::string& initialFilePath, point initialDefaultPivot) :
-        ImageFile(initialFilePath, initialDefaultPivot) {
+    SpriterImageFile(HaskellSprite* sprite,
+                     function<void()> render,
+                     const string& filename,
+                     point pivot) :
+        sprite(sprite),
+        ImageFile(filename, pivot),
+        render(render) {
     }
 
     void renderSprite(UniversalObjectInterface *spriteInfo) override {
-    }
-
-    void setAtlasFile(AtlasFile *initialAtlasFile, atlasframedata initialAtlasFrameData) override {
-		ImageFile::setAtlasFile(initialAtlasFile, initialAtlasFrameData);
+        render();
     }
 
 private:
+    HaskellSprite* sprite;
+    function<void()> render = nullptr;
 };
 
 class SpriterFileFactory : public FileFactory
 {
 public:
-    SpriterFileFactory() {
+    SpriterFileFactory(function<HaskellSprite*(const char*, double, double)> imageLoad,
+                       function<void()> render) :
+        imageLoad(imageLoad), render(render) {
     }
 
-    ImageFile *newImageFile(const std::string& initialFilePath, point initialDefaultPivot, atlasdata atlasData) override {
-        return new SpriterImageFile(initialFilePath, initialDefaultPivot);
+    ImageFile *newImageFile(const string& filename,
+                            point pivot,
+                            atlasdata atlasData) override {
+        HaskellSprite* sprite = imageLoad(filename.c_str(), pivot.x, pivot.y);
+        return new SpriterImageFile(sprite, render, filename, pivot);
     }
-
-    //AtlasFile *newAtlasFile(const std::string &initialFilePath) override;
-
-    //SoundFile *newSoundFile(const std::string &initialFilePath) override;
-
-    //SpriterFileDocumentWrapper *newScmlDocumentWrapper() override;
 
 	SpriterFileDocumentWrapper* newSconDocumentWrapper() override {
         return new JSONSpriterFileDocumentWrapper();
     }
 
 private:
+    function<HaskellSprite*(const char*, double, double)> imageLoad;
+    function<void()> render;
 };
 
 #endif

@@ -14,9 +14,16 @@ import Data.Monoid ((<>))
 import Data.StateVar (($=))
 
 import Foreign.C.Types (CDouble(..))
-import Foreign.C.String (CString, withCString)
+import Foreign.C.String (CString, withCString, peekCString)
 import Foreign.Marshal.Alloc (free)
-import Foreign.Ptr (Ptr, nullPtr)
+import Foreign.Ptr (Ptr(..), nullPtr, castPtr, FunPtr)
+import Foreign.StablePtr
+    ( StablePtr
+    , newStablePtr
+    , deRefStablePtr
+    , castStablePtrToPtr
+    , castPtrToStablePtr
+    )
 
 import Linear (V2(..), V4(..))
 
@@ -41,29 +48,25 @@ winHeight = 600
 timeStep :: Double
 timeStep = 1/60
 
-data Sprite = Sprite
-    { _spriteTexture :: SDL.Texture
-    , _spriteWidth :: Int
-    , _spriteHeight :: Int
-    , _spritePivotX :: Double
-    , _spritePivotY :: Double
-    , _spriteName :: String
-    }
-
 makeLenses ''Sprite
 
 type SpriterFolders = Map Int (Map Int Sprite)
 
-data AnimState = AnimState
-    { _frameTime :: Double
-    }
+type ImageLoader = CString -> CDouble -> CDouble -> IO (Ptr Sprite)
+type Renderer = IO ()
 
-makeLenses ''AnimState
-
-loadSpriterModel :: CString -> IO (Ptr CSpriterModel)
-loadSpriterModel modelPath =
+loadSpriterModel :: (FunPtr ImageLoader) -> (FunPtr Renderer) -> CString -> IO (Ptr CSpriterModel)
+loadSpriterModel imgloader renderer modelPath =
     [C.exp| SpriterModel*
-        { new SpriterModel($(char* modelPath), new SpriterFileFactory()) }|]
+        {
+            new SpriterModel(
+                $(char* modelPath),
+                new SpriterFileFactory(
+                        $(HaskellSprite* (*imgloader)(const char*, double, double)),
+                        $(void (*renderer)())
+                )
+          )
+        }|]
 
 modelGetNewEntityInstance :: Ptr CSpriterModel -> CString -> IO (Ptr CEntityInstance)
 modelGetNewEntityInstance model entityName =
@@ -77,15 +80,28 @@ entityInstanceSetCurrentAnimation ptr animName =
 
 printWithMsg :: CDouble -> IO ()
 printWithMsg val =
-    putStrLn $ "Val is " ++ show val ++ "."
+    putStrLn $ "Value is " ++ show val ++ "."
+
+loadImage :: SDL.Renderer -> CString -> CDouble -> CDouble -> IO (Ptr Sprite)
+loadImage renderer filename pivotX pivotY = do
+    name <- peekCString filename
+
+    tex <- SDL.Image.loadTexture renderer $ name
+    putStrLn $ "Loaded " ++ name
+
+    let sprite = Sprite
+            { _spriteTexture = tex
+            , _spritePivotX = pivotX
+            , _spritePivotY = pivotY
+            , _spriteName = name
+            }
+
+    stablePtr <- newStablePtr sprite
+    --return $ castPtr $ castStablePtrToPtr stablePtr
+    return nullPtr
 
 main :: IO ()
 main = do
-    [C.exp| void { Settings::setErrorFunction(Settings::simpleError);} |]
-    spriterModel <- withCString "res/CharacterTest/CharacterTest.scon" loadSpriterModel
-    entityInstance <- withCString "Character" $ modelGetNewEntityInstance spriterModel
-    withCString "Run" $ entityInstanceSetCurrentAnimation entityInstance
-
     SDL.initializeAll
     aaSucceded <-
         SDL.setHintWithPriority SDL.DefaultPriority SDL.HintRenderScaleQuality SDL.ScaleLinear
@@ -96,66 +112,54 @@ main = do
         { SDL.windowInitialSize = V2 winWidth winHeight
         }
 
-    [C.block|
-     void {
-         $fun:(void (*printWithMsg)(double))(4.0);
-         $fun:(void (*printWithMsg)(double))(8.0);
-     }
-     |]
-
     renderer <- SDL.createRenderer window (-1) SDL.defaultRenderer
---     folders <- loadFolders renderer (schema^.schemaFolder)
-
---     let chr = (schema^.schemaEntity) ! "Character"
---         idleAnim = (chr^.entityAnimation) ! "Idle"
---         runAnim = (chr^.entityAnimation) ! "Run"
 
     let
-        apploop :: AnimState -> IO ()
-        apploop state = do
+        sdlLoad = loadImage renderer
+        sdlRender = renderSprite renderer
+
+    imgloader <- $(C.mkFunPtr [t| ImageLoader |]) sdlLoad
+    renderf <- $(C.mkFunPtr [t| Renderer |]) sdlRender
+
+    [C.exp| void { Settings::setErrorFunction(Settings::simpleError); } |]
+    spriterModel <- withCString "res/CharacterTest/CharacterTest.scon"
+        (loadSpriterModel imgloader renderf)
+    entityInstance <- withCString "Character" $ modelGetNewEntityInstance spriterModel
+    withCString "Run" $ entityInstanceSetCurrentAnimation entityInstance
+
+
+    let
+        cTimeStep = CDouble timeStep
+
+        apploop :: IO ()
+        apploop = do
             events <- SDL.pollEvents
             let qPressed = any eventIsQPress events
 
             SDL.rendererDrawColor renderer $= V4 0 0 0 255
             SDL.clear renderer
 
+            [C.block| void
+             {
+                 //cout << "yop" << endl;
+                 auto ent = $(EntityInstance* entityInstance);
+                 //cout << "yip" << endl;
+                 ent->setTimeElapsed($(double cTimeStep));
+                 //cout << "yup" << endl;
+                 ent->render();
+                 //cout << "yap" << endl;
+             }
+            |]
+
             SDL.present renderer
 
             threadDelay $ floor $ timeStep * 1000000
-            unless qPressed $ apploop state
-                { _frameTime = state ^. frameTime + timeStep
-                }
+            unless qPressed $ apploop
 
     apploop
-        AnimState
-        { _frameTime = 0
-        }
 
     free entityInstance
     free spriterModel
-
--- loadFolders :: SDL.Renderer -> [Sk.Folder] -> IO (Map Int (Map Int Sprite))
--- loadFolders renderer fs = Map.fromList <$> spriteList
---     where spriteList = forM fs $ \folder -> do
---               images <- loadImages renderer (folder^.folderFile)
---               return (folder^.folderId, images)
-
--- loadImages :: SDL.Renderer -> [Sk.File] -> IO (Map Int Sprite)
--- loadImages renderer fs = Map.fromList <$> spriteList
---     where spriteList = forM fs $ \file -> do
---               let filepath = "res/CharacterTest/" ++ file^.fileName
---               tex <- SDL.Image.loadTexture renderer $ filepath
---               putStrLn $ "Loaded " ++ filepath
-
---               let sprite = Sprite
---                       { _spriteTexture = tex
---                       , _spriteWidth = file ^. fileWidth
---                       , _spriteHeight = file ^. fileHeight
---                       , _spritePivotX = file ^. filePivotX
---                       , _spritePivotY = file ^. filePivotY
---                       , _spriteName = file ^. fileName
---                       }
---               return (file^.fileId, sprite)
 
 eventIsQPress :: SDL.Event -> Bool
 eventIsQPress event =
@@ -188,3 +192,11 @@ eventIsQPress event =
 --             in
 --                 SDL.copyEx
 --                     renderer texture Nothing (Just $ renderRect) (CDouble degAngle) pivot (V2 False False)
+
+renderSprite :: SDL.Renderer -> -- Ptr Sprite -> 
+    IO ()
+renderSprite renderer -- spritePtr
+    = do
+    -- sprite <- deRefStablePtr $ castPtrToStablePtr $ castPtr $ spritePtr
+    -- putStrLn $ "rendering" ++ sprite ^. spriteName
+    putStrLn "eehhhhhmmmaaahhgerd"

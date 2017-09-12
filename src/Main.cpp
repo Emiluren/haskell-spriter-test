@@ -10,8 +10,16 @@
 using namespace SpriterEngine;
 
 extern "C" {
-SpriterModel * inline_c_Main_0_81169fea54450e7239a3756562373020c6dac348(char * modelPath_inline_c_0) {
-return ( new SpriterModel(modelPath_inline_c_0, new SpriterFileFactory()) );
+SpriterModel * inline_c_Main_0_f3ce6667b7e7fb2a80dfc9627ad710e87d6e1438(char * modelPath_inline_c_0, HaskellSprite * (* imgloader_inline_c_1)(const char *, double , double ), void (* renderer_inline_c_2)()) {
+return (
+            new SpriterModel(
+                modelPath_inline_c_0,
+                new SpriterFileFactory(
+                        imgloader_inline_c_1,
+                        renderer_inline_c_2
+                )
+          )
+        );
 }
 
 }
@@ -31,18 +39,23 @@ void inline_c_Main_2_d81c12f586a59cc374d5ed7bbbb3eff989c03ebc(EntityInstance * p
 }
 
 extern "C" {
-void inline_c_Main_3_5b59f388aec97892e0e4f9e43b4d357f1c8e1b97() {
- Settings::setErrorFunction(Settings::simpleError);;
+void inline_c_Main_3_0904dee9f665a3497d4479a5e816f6a31739d10c() {
+ Settings::setErrorFunction(Settings::simpleError); ;
 }
 
 }
 
 extern "C" {
-void inline_c_Main_4_1418bcf5c7196d54f30f71e042c5d9e9765017c0(void (* printWithMsg_inline_c_0)(double ), void (* printWithMsg_inline_c_1)(double )) {
+void inline_c_Main_4_52748ac8bbe7c929c18d02e526b7ebd8be6b3f31(EntityInstance * entityInstance_inline_c_0, double cTimeStep_inline_c_1) {
 
-         printWithMsg_inline_c_0(4.0);
-         printWithMsg_inline_c_1(8.0);
-     
+                 //cout << "yop" << endl;
+                 auto ent = entityInstance_inline_c_0;
+                 //cout << "yip" << endl;
+                 ent->setTimeElapsed(cTimeStep_inline_c_1);
+                 //cout << "yup" << endl;
+                 ent->render();
+                 //cout << "yap" << endl;
+             
 }
 
 }
